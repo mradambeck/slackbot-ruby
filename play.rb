@@ -1,61 +1,52 @@
 require 'http'
 require 'json'
-require 'eventmachine'
 require 'faye/websocket'
+require 'eventmachine'
+require 'sinatra'
 
-# rc = HTTP.post('https://slack.com/api/api.test')
-
-# rc = HTTP.post('https://slack.com/api/auth.test',
-#   params: {
-#     token: ENV['SLACK_API_TOKEN']
-#   })
-
-# rc = HTTP.post('https://slack.com/api/chat.postMessage',
-#   params: {
-#     token: ENV['SLACK_API_TOKEN'],
-#     channel: '#general',
-#     text: 'Hello world.',
-#     as_user: true
-#   })
-
-# puts JSON.pretty_generate(JSON.parse(rc.body))
-
-
-rc = HTTP.post('https://slack.com/api/rtm.start',
-  params: {
-    token: ENV['SLACK_API_TOKEN']
-  }
-)
-
-rc = JSON.parse(rc.body)
-
-puts rc['url']
-
-EM.run do
-  ws = Faye::WebSocket::Client.new(rc['url'])
-
-  ws.on :open do
-    p [:open]
+Thread.new do
+  EM.run do
   end
+end
 
-  ws.on :message do |event|
-    data = JSON.parse(event.data)
-    p [:message, data]
-    if data['text'] == 'hi'
-      ws.send(
-        {
-          type: 'message',
-          text: "hi <@#{data['user']}>",
-          channel: data['channel']
-        }.to_json
-      )
+get '/' do
+  if params.key?('code')
+    rc = JSON.parse(HTTP.post('https://slack.com/api/oauth.access', params: {
+      client_id: ENV['SLACK_CLIENT_ID'],
+      client_secret: ENV['SLACK_CLIENT_SECRET'],
+      code: params['code']
+    }))
+
+    token = rc['bot']['bot_access_token']
+
+    rc = JSON.parse(HTTP.post('https://slack.com/api/rtm.start', params: {
+      token: token
+    }))
+
+    url = rc['url']
+
+    ws = Faye::WebSocket::Client.new(url)
+
+    ws.on :open do
+      p [:open]
     end
-    p [:message, JSON.parse(event.data)]
-  end
 
-  ws.on :close do |event|
-    p [:close, event.code]
-    ws = nil
-    EM.stop
+    ws.on :message do |event|
+      data = JSON.parse(event.data)
+      p [:message, JSON.parse(event.data)]
+      if data['type'] == 'message' && data['text'] == 'hi'
+        ws.send({ type: 'message', text: "hi <@#{data['user']}>", channel: data['channel'] }.to_json)
+      end
+    end
+
+    ws.on :close do |event|
+      p [:close, event.code, event.reason]
+      ws = nil
+      EM.stop
+    end
+
+    "This is live"
+  else
+    "Derp"
   end
 end
